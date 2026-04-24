@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+:root {
+  --bg: 10 10 14;
+  --fg: 244 245 247;
+
+  --muted: 155 161 175;
+  --muted-2: 115 121 135;
+
+  --card: 18 19 26;
+  --card-2: 14 16 22;
+  --border: 255 255 255;
+
+  --brand: 106 255 237;
+  --brand-2: 160 128 255;
+  --warn: 255 196 72;
+  --danger: 255 93 160;
+
+  --shadow: 0 22px 60px rgba(0, 0, 0, 0.55);
+}
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: rgb(var(--bg));
+  color: rgb(var(--fg));
+  font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system,
+    Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+::selection {
+  background: rgb(var(--brand) / 0.25);
+}
+
+/* Subtle custom scrollbar for dark UI */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto !important;
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* Leaflet divIcon: remove default white box around custom marker */
+.jansetu-leaflet-marker {
+  background: transparent !important;
+  border: none !important;
+}
