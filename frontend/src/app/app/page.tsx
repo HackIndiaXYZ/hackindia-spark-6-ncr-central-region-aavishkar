@@ -76,7 +76,12 @@ export default function DashboardPage() {
   const [speechError, setSpeechError] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
-  const speechSupported = useMemo(() => Boolean(getSpeechRecognitionCtor()), []);
+  // IMPORTANT: Determine browser-only capabilities after mount.
+  // If we compute this during render, SSR and client can disagree, causing hydration errors.
+  const [speechSupported, setSpeechSupported] = useState(false);
+  useEffect(() => {
+    setSpeechSupported(Boolean(getSpeechRecognitionCtor()));
+  }, []);
 
   const [location, setLocation] = useState<{
     lng: number;

@@ -20,10 +20,25 @@ log = logging.getLogger("jansetu")
 # ---------------------------------------------------------------------------
 # Environment
 # ---------------------------------------------------------------------------
-load_dotenv()  # picks up .env in the working directory (or any parent)
+# picks up .env in the working directory (or any parent)
+load_dotenv()
+# common local-dev convention; safe if missing
+load_dotenv(".env.local")
 
-OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "").strip()
-OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+MONGO_URL = os.getenv("MONGO_URL", "")
+DB_NAME = os.getenv("DB_NAME", "")
+JWT_SECRET = os.getenv("JWT_SECRET", "")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+JWT_EXPIRE_HOURS = 24 * 7
+
+_raw_llm_key = (os.getenv("EMERGENT_LLM_KEY") or os.getenv("OPENAI_API_KEY") or "").strip()
+OPENAI_API_KEY: str = _raw_llm_key
+OPENAI_MODEL: str = os.environ.get("OPENAI_MODEL", "gpt-3.5-turbo")
+
+if not MONGO_URL or not DB_NAME:
+    log.warning("Mongo env not set (MONGO_URL/DB_NAME) — DB features may not work.")
+if not JWT_SECRET:
+    log.warning("JWT_SECRET not set — auth features may not work.")
 
 # ---------------------------------------------------------------------------
 # OpenAI client (optional — falls back to rule-based if key absent)
@@ -40,7 +55,7 @@ if _client:
     log.info("OpenAI client ready  (model=%s)", OPENAI_MODEL)
 else:
     log.warning(
-        "OPENAI_API_KEY is not set or openai package missing — "
+        "EMERGENT_LLM_KEY / OPENAI_API_KEY not set or openai package missing — "
         "falling back to rule-based letter generation."
     )
 
