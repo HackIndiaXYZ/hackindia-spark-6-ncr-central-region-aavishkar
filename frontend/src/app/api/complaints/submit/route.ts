@@ -23,7 +23,7 @@ const bodySchema = z.object({
     .optional(),
   draft: z.object({
     subject: z.string().min(1).max(500),
-    body: z.string().min(1).max(20000),
+    body: z.string().min(1).max(60000),
   }),
   ai: z
     .object({

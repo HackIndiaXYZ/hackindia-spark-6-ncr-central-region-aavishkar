@@ -31,6 +31,18 @@ export function AppNavbar() {
 
         <nav className="flex items-center gap-2">
           <Link
+            href="/app/preview"
+            className="rounded-full px-3 py-2 text-sm text-white/70 hover:bg-white/[0.06] hover:text-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+          >
+            Preview
+          </Link>
+          <Link
+            href="/app/local-complaints"
+            className="rounded-full px-3 py-2 text-sm text-white/70 hover:bg-white/[0.06] hover:text-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+          >
+            Local archive
+          </Link>
+          <Link
             href="/"
             className="rounded-full px-3 py-2 text-sm text-white/70 hover:bg-white/[0.06] hover:text-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
           >
