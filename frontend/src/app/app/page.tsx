@@ -28,6 +28,7 @@ import {
 } from "@/lib/local-complaints";
 import { getSpeechRecognitionCtor, startSpeechRecognition } from "@/lib/speech";
 import { cn } from "@/lib/utils";
+import { setPendingPreview } from "@/lib/preview-runtime-store";
 
 type Message = {
   role: "user" | "assistant";
@@ -216,28 +217,44 @@ export default function DashboardPage() {
 
       setDraft(data.draft);
       setDraftMeta({ ai: data.ai, source: data.source });
+
+      // ── Write to BOTH localStorage AND the in-memory store ──
+      // localStorage survives navigation; in-memory store survives re-renders.
+      const previewPayload = {
+        domain,
+        languageLabel,
+        issueText: userText,
+        fullName: fullName.trim() || undefined,
+        email: email.trim() || undefined,
+        location: location
+          ? { lng: location.lng, lat: location.lat, label: location.label }
+          : undefined,
+        draft: data.draft,
+        ai: data.ai,
+        source: data.source,
+      };
       try {
-        localStorage.setItem(
-          "jansetu_preview_state_v1",
-          JSON.stringify({
-            domain,
-            languageLabel,
-            issueText: userText,
-            fullName: fullName.trim() || undefined,
-            email: email.trim() || undefined,
-            location: location
-              ? { lng: location.lng, lat: location.lat, label: location.label }
-              : undefined,
-            draft: data.draft,
-            ai: data.ai,
-            source: data.source,
-          }),
-        );
+        localStorage.setItem("jansetu_preview_state_v1", JSON.stringify(previewPayload));
       } catch {
         // ignore localStorage failures
       }
+      // Set in-memory store so navigating to /app/preview in the same session works instantly
+      setPendingPreview({
+        domain,
+        languageLabel,
+        issueText: userText,
+        fullName: fullName.trim() || undefined,
+        email: email.trim() || undefined,
+        location: location
+          ? { lng: location.lng, lat: location.lat, label: location.label }
+          : undefined,
+        draft: data.draft,
+        ai: data.ai,
+        attachments: [],
+      });
+
       pushAssistant(
-        `Draft saved. Severity: ${data.ai.severityLabel} (${data.ai.severityScore}/100). Open Preview to review & submit.`,
+        `Draft ready! Severity: ${data.ai.severityLabel} (${data.ai.severityScore}/100) • Routed to: ${data.ai.routedDepartment}. Click "Review & Submit" below.`,
       );
     } catch {
       pushAssistant("Network error while drafting. Check your connection and try again.");
@@ -480,37 +497,61 @@ export default function DashboardPage() {
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-3">
-            <div>
-              <CardTitle>Draft review</CardTitle>
-              <p className="mt-1 text-xs text-white/45">Preview + submit moved to a dedicated page.</p>
-            </div>
-            <Link
-              href="/app/preview"
-              className="rounded-full border border-white/[0.12] bg-white/[0.06] px-3 py-1.5 text-xs text-white/80 hover:bg-white/[0.09]"
-            >
-              Open preview
-            </Link>
+          <CardHeader>
+            <CardTitle>Draft review</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {draftMeta ? (
-              <div className="rounded-3xl border border-white/[0.10] bg-black/20 p-4">
-                <p className="text-xs font-medium tracking-[0.2em] text-white/45 uppercase">
-                  Latest draft status
-                </p>
-                <p className="mt-2 text-sm text-white/80">
-                  Severity <span className="font-semibold text-white/90">{draftMeta.ai.severityLabel}</span>{" "}
-                  <span className="text-white/55">({draftMeta.ai.severityScore}/100)</span> • Routed to{" "}
-                  <span className="font-semibold text-white/90">{draftMeta.ai.routedDepartment}</span>
-                </p>
-              </div>
+              <>
+                {/* AI meta summary */}
+                <div className="rounded-3xl border border-white/[0.10] bg-black/20 p-4">
+                  <p className="text-xs font-medium tracking-[0.2em] text-white/45 uppercase">
+                    Draft ready ✓
+                  </p>
+                  <p className="mt-2 text-sm text-white/80">
+                    Severity{" "}
+                    <span className="font-semibold text-white/90">{draftMeta.ai.severityLabel}</span>{" "}
+                    <span className="text-white/55">({draftMeta.ai.severityScore}/100)</span>
+                    {" "}• Routed to{" "}
+                    <span className="font-semibold text-white/90">{draftMeta.ai.routedDepartment}</span>
+                  </p>
+                  {draft && (
+                    <p className="mt-2 line-clamp-2 text-xs text-white/50 italic">
+                      Subject: {draft.subject}
+                    </p>
+                  )}
+                </div>
+
+                {/* Prominent CTA */}
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.25 }}
+                  className="flex flex-col gap-2 sm:flex-row"
+                >
+                  <Link
+                    href="/app/preview"
+                    className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[rgb(var(--brand))] to-[rgb(var(--brand-2))] px-4 py-3 text-sm font-semibold text-black shadow-[0_0_20px_rgba(106,255,237,0.35)] transition-all hover:opacity-90 hover:shadow-[0_0_28px_rgba(106,255,237,0.5)]"
+                  >
+                    <Send className="h-4 w-4" />
+                    Review &amp; Submit
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => { setDraft(null); setDraftMeta(null); }}
+                    className="rounded-2xl border border-white/[0.10] bg-white/[0.04] px-4 py-3 text-xs text-white/50 transition-all hover:bg-white/[0.08] hover:text-white/70"
+                  >
+                    Discard draft
+                  </button>
+                </motion.div>
+              </>
             ) : (
               <div className="grid min-h-[120px] place-items-center rounded-3xl border border-white/[0.10] bg-black/20 p-5 text-center">
                 <div className="max-w-sm">
                   <FileText className="mx-auto h-6 w-6 text-white/60" />
                   <p className="mt-2 text-sm font-semibold text-white/85">No draft yet</p>
                   <p className="mt-1 text-sm text-white/60">
-                    Generate a draft, then open Preview to review & submit.
+                    Describe your issue above and click <strong className="text-white/80">Generate draft</strong>.
                   </p>
                 </div>
               </div>

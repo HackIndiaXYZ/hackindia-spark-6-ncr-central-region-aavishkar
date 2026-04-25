@@ -5,8 +5,47 @@ import Link from "next/link";
 import { AlertTriangle, CheckCircle2, Copy, Loader2, Route, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { clearPendingPreview, getPendingPreview } from "@/lib/preview-runtime-store";
+import { clearPendingPreview, getPendingPreview, setPendingPreview, type PendingPreview } from "@/lib/preview-runtime-store";
 import { saveComplaintDraftLocal, type LocalAttachment } from "@/lib/local-complaint-store";
+import { DOMAINS, type ComplaintDomain } from "@/lib/complaint";
+
+/** Try in-memory store first; if empty, restore from localStorage. */
+function getOrRestorePreview(): PendingPreview | null {
+  const inMemory = getPendingPreview();
+  if (inMemory) return inMemory;
+
+  try {
+    const raw = localStorage.getItem("jansetu_preview_state_v1");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    // Don't restore a draft that was already submitted
+    if (parsed.isSubmitted) return null;
+    const draft = parsed.draft as { subject: string; body: string } | undefined;
+    const ai = parsed.ai as { severityScore: number; severityLabel: string; routedDepartment: string } | undefined;
+    if (!draft?.subject || !ai) return null;
+
+    const domainVal = DOMAINS.includes(parsed.domain as ComplaintDomain)
+      ? (parsed.domain as ComplaintDomain)
+      : DOMAINS[0]!;
+
+    const restored: PendingPreview = {
+      domain: domainVal,
+      languageLabel: (parsed.languageLabel as string) ?? "English (India)",
+      issueText: (parsed.issueText as string) ?? "",
+      fullName: parsed.fullName as string | undefined,
+      email: parsed.email as string | undefined,
+      location: parsed.location as { lng: number; lat: number; label?: string } | undefined,
+      draft,
+      ai,
+      attachments: [], // Files cannot be serialised to localStorage
+    };
+    // Persist back to in-memory store so it survives any further re-renders
+    setPendingPreview(restored);
+    return restored;
+  } catch {
+    return null;
+  }
+}
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -47,14 +86,16 @@ function PendingAttachmentPreview({
 }
 
 export default function PreviewPage() {
-  const [pending, setPending] = useState(() => getPendingPreview());
+  // Use the restore helper so navigation-caused memory loss is transparent
+  const [pending, setPending] = useState<PendingPreview | null>(() => getOrRestorePreview());
   const [submitting, setSubmitting] = useState(false);
   const [referenceId, setReferenceId] = useState<string | null>(null);
   const [statusLine, setStatusLine] = useState<string>("");
   const [sessionEmail, setSessionEmail] = useState("");
 
   useEffect(() => {
-    setPending(getPendingPreview());
+    // Re-run on mount (handles hard refresh and SSR hydration)
+    setPending(getOrRestorePreview());
   }, []);
 
   useEffect(() => {
@@ -142,6 +183,14 @@ export default function PreviewPage() {
       setReferenceId(data.referenceId ?? null);
       setStatusLine("Submitted and backed up locally.");
       clearPendingPreview();
+      // Mark localStorage as submitted so restore helper won't replay it
+      try {
+        const raw = localStorage.getItem("jansetu_preview_state_v1");
+        if (raw) {
+          const prev = JSON.parse(raw) as Record<string, unknown>;
+          localStorage.setItem("jansetu_preview_state_v1", JSON.stringify({ ...prev, isSubmitted: true }));
+        }
+      } catch { /* ignore */ }
       setPending(null);
     } catch {
       setStatusLine("Network error while submitting.");
