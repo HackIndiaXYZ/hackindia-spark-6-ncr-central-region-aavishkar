@@ -1,17 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import {
-  ArrowUpRight,
+  FileText,
   Loader2,
   Mic,
   MicOff,
-  Paperclip,
   Send,
   Sparkles,
-  Trash2,
+  ArrowUpRight,
 } from "lucide-react";
 import { LocationPicker } from "@/components/map/location-picker";
 import { Button } from "@/components/ui/button";
@@ -20,8 +19,13 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { DOMAINS, type ComplaintDomain } from "@/lib/complaint";
-import type { LocalAttachmentKind } from "@/lib/local-complaint-store";
-import { setPendingPreview, type DraftAiMeta } from "@/lib/preview-runtime-store";
+import {
+  findLocalComplaint,
+  listLocalComplaints,
+  mergeLocalComplaints,
+  type LocalComplaintItem as HistoryItem,
+  type DraftAiMeta,
+} from "@/lib/local-complaints";
 import { getSpeechRecognitionCtor, startSpeechRecognition } from "@/lib/speech";
 import { cn } from "@/lib/utils";
 
@@ -30,30 +34,7 @@ type Message = {
   content: string;
 };
 
-type AttachmentDraftItem = {
-  id: string;
-  name: string;
-  mimeType: string;
-  size: number;
-  kind: LocalAttachmentKind;
-  file: File;
-  previewUrl: string;
-};
 
-const MAX_FILES = 5;
-const MAX_IMAGE_SIZE_MB = 5;
-const MAX_VIDEO_SIZE_MB = 25;
-const IMAGE_MIMES = ["image/jpeg", "image/png", "image/webp"];
-const VIDEO_MIMES = ["video/mp4", "video/webm", "video/quicktime"];
-const ACCEPT_ATTR = [...IMAGE_MIMES, ...VIDEO_MIMES].join(",");
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  const kb = bytes / 1024;
-  if (kb < 1024) return `${kb.toFixed(1)} KB`;
-  const mb = kb / 1024;
-  return `${mb.toFixed(1)} MB`;
-}
 
 const LANGUAGES = [
   { label: "Hindi (India)", code: "hi-IN" },
@@ -72,6 +53,7 @@ const LANGUAGES = [
 export default function DashboardPage() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+  const [userId, setUserId] = useState<string | null>(null);
   const [domain, setDomain] = useState<ComplaintDomain>(DOMAINS[0]!);
   const [lang, setLang] = useState(LANGUAGES[0]!.code);
   const languageLabel = useMemo(
@@ -107,13 +89,46 @@ export default function DashboardPage() {
     ai: DraftAiMeta;
     source: "ai_service" | "fallback";
   } | null>(null);
-  const [draftIssueText, setDraftIssueText] = useState("");
-  const [attachmentError, setAttachmentError] = useState<string | null>(null);
-  const [attachments, setAttachments] = useState<AttachmentDraftItem[]>([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
 
   const chatEndRef = useRef<HTMLDivElement | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const attachmentsRef = useRef<AttachmentDraftItem[]>([]);
+
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      if (userId) {
+        // Immediately show local history (works even offline / without DB)
+        setHistory(listLocalComplaints(userId, 25));
+      }
+
+      const res = await fetch("/api/complaints", { credentials: "include" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { items?: HistoryItem[] };
+      setHistory(data.items ?? []);
+
+      if (userId && Array.isArray(data.items)) {
+        mergeLocalComplaints(
+          userId,
+          data.items.map((x) => ({
+            id: x.id,
+            referenceId: x.referenceId,
+            domain: x.domain as ComplaintDomain,
+            createdAt: x.createdAt,
+            draftSubject: x.draftSubject,
+            draftBody: x.draftBody,
+            issueText: x.issueText,
+            locationLabel: x.locationLabel,
+            ai: x.ai,
+            emailSent: x.emailSent,
+            languageLabel: x.languageLabel,
+          })),
+        );
+      }
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [userId]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -124,9 +139,10 @@ export default function DashboardPage() {
     (async () => {
       const res = await fetch("/api/me", { credentials: "include" });
       const data = (await res.json()) as {
-        user?: { email?: string; username?: string } | null;
+        user?: { id?: string; email?: string; username?: string } | null;
       };
       if (cancelled) return;
+      if (data.user?.id) setUserId(data.user.id);
       if (data.user?.email) setEmail((e) => e || data.user!.email!);
       if (data.user?.username) setFullName((n) => n || data.user!.username!);
     })();
@@ -136,41 +152,8 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    attachmentsRef.current = attachments;
-  }, [attachments]);
-
-  useEffect(() => {
-    if (!draft || !draftMeta || !draftIssueText) {
-      setPendingPreview(null);
-      return;
-    }
-    setPendingPreview({
-      domain,
-      languageLabel,
-      issueText: draftIssueText,
-      fullName: fullName.trim() || undefined,
-      email: email.trim() || undefined,
-      location: location ?? undefined,
-      draft,
-      ai: draftMeta.ai,
-      attachments: attachments.map((a) => ({
-        id: a.id,
-        name: a.name,
-        mimeType: a.mimeType,
-        size: a.size,
-        kind: a.kind,
-        file: a.file,
-      })),
-    });
-  }, [attachments, domain, draft, draftIssueText, draftMeta, email, fullName, languageLabel, location]);
-
-  useEffect(() => {
-    return () => {
-      for (const file of attachmentsRef.current) {
-        URL.revokeObjectURL(file.previewUrl);
-      }
-    };
-  }, []);
+    void loadHistory();
+  }, [loadHistory]);
 
   function pushUser(text: string) {
     const trimmed = text.trim();
@@ -182,76 +165,11 @@ export default function DashboardPage() {
     setMessages((m) => [...m, { role: "assistant", content: text }]);
   }
 
-  function removeAttachment(id: string) {
-    setAttachments((prev) => {
-      const next = prev.filter((a) => a.id !== id);
-      const removed = prev.find((a) => a.id === id);
-      if (removed) URL.revokeObjectURL(removed.previewUrl);
-      return next;
-    });
-  }
-
-  function normalizeIncomingFiles(incoming: File[]) {
-    const next: AttachmentDraftItem[] = [];
-    let error: string | null = null;
-
-    for (const file of incoming) {
-      if (attachments.length + next.length >= MAX_FILES) {
-        error = `You can attach up to ${MAX_FILES} files.`;
-        break;
-      }
-
-      const kind: LocalAttachmentKind | null = IMAGE_MIMES.includes(file.type)
-        ? "image"
-        : VIDEO_MIMES.includes(file.type)
-          ? "video"
-          : null;
-
-      if (!kind) {
-        error = `Unsupported file type: ${file.name}`;
-        continue;
-      }
-
-      const maxBytes = (kind === "image" ? MAX_IMAGE_SIZE_MB : MAX_VIDEO_SIZE_MB) * 1024 * 1024;
-      if (file.size > maxBytes) {
-        error = `${file.name} exceeds ${kind === "image" ? MAX_IMAGE_SIZE_MB : MAX_VIDEO_SIZE_MB} MB.`;
-        continue;
-      }
-
-      const isDuplicate = [...attachments, ...next].some(
-        (a) =>
-          a.name === file.name &&
-          a.size === file.size &&
-          a.file.lastModified === file.lastModified,
-      );
-      if (isDuplicate) continue;
-
-      next.push({
-        id: crypto.randomUUID(),
-        name: file.name,
-        mimeType: file.type,
-        size: file.size,
-        kind,
-        file,
-        previewUrl: URL.createObjectURL(file),
-      });
-    }
-
-    setAttachmentError(error);
-    if (next.length > 0) setAttachments((prev) => [...prev, ...next]);
-  }
-
-  function onPickFiles(fileList: FileList | null) {
-    if (!fileList || fileList.length === 0) return;
-    normalizeIncomingFiles(Array.from(fileList));
-  }
-
   async function handleSend() {
     if (!issueText.trim()) return;
 
     setDraft(null);
     setDraftMeta(null);
-    setDraftIssueText("");
     setDrafting(true);
 
     const userText = issueText.trim();
@@ -298,9 +216,28 @@ export default function DashboardPage() {
 
       setDraft(data.draft);
       setDraftMeta({ ai: data.ai, source: data.source });
-      setDraftIssueText(userText);
+      try {
+        localStorage.setItem(
+          "jansetu_preview_state_v1",
+          JSON.stringify({
+            domain,
+            languageLabel,
+            issueText: userText,
+            fullName: fullName.trim() || undefined,
+            email: email.trim() || undefined,
+            location: location
+              ? { lng: location.lng, lat: location.lat, label: location.label }
+              : undefined,
+            draft: data.draft,
+            ai: data.ai,
+            source: data.source,
+          }),
+        );
+      } catch {
+        // ignore localStorage failures
+      }
       pushAssistant(
-        `Preview is ready. Severity: ${data.ai.severityLabel} (${data.ai.severityScore}/100). Routed desk: ${data.ai.routedDepartment}.`,
+        `Draft saved. Severity: ${data.ai.severityLabel} (${data.ai.severityScore}/100). Open Preview to review & submit.`,
       );
     } catch {
       pushAssistant("Network error while drafting. Check your connection and try again.");
@@ -433,86 +370,6 @@ export default function DashboardPage() {
               onChange={(e) => setIssueText(e.target.value)}
               placeholder="Explain what happened, who/what is involved, and what outcome you want…"
             />
-            <div className="rounded-3xl border border-white/[0.10] bg-black/20 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm text-white/80">Add verification proof (optional)</p>
-                  <p className="text-xs text-white/50">
-                    Attach up to {MAX_FILES} files. Images up to {MAX_IMAGE_SIZE_MB}MB, videos up to{" "}
-                    {MAX_VIDEO_SIZE_MB}MB.
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Paperclip className="h-4 w-4" />
-                  Add files
-                </Button>
-              </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept={ACCEPT_ATTR}
-                multiple
-                className="hidden"
-                onChange={(e) => {
-                  onPickFiles(e.target.files);
-                  e.currentTarget.value = "";
-                }}
-              />
-              <div
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  onPickFiles(e.dataTransfer.files);
-                }}
-                className="mt-3 rounded-2xl border border-dashed border-white/[0.16] px-4 py-5 text-center text-xs text-white/55"
-              >
-                Drag and drop photo/video files here
-              </div>
-              {attachmentError ? (
-                <p className="mt-2 text-xs text-[rgb(var(--danger))]">{attachmentError}</p>
-              ) : null}
-              {attachments.length > 0 ? (
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  {attachments.map((attachment) => (
-                    <div
-                      key={attachment.id}
-                      className="rounded-2xl border border-white/[0.10] bg-white/[0.04] p-3"
-                    >
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <p className="line-clamp-1 text-xs text-white/70">{attachment.name}</p>
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          onClick={() => removeAttachment(attachment.id)}
-                          aria-label="Remove attachment"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      <p className="mb-2 text-[11px] text-white/45">{formatBytes(attachment.size)}</p>
-                      {attachment.kind === "image" ? (
-                        <img
-                          src={attachment.previewUrl}
-                          alt={attachment.name}
-                          className="h-28 w-full rounded-xl object-cover"
-                        />
-                      ) : (
-                        <video
-                          src={attachment.previewUrl}
-                          className="h-28 w-full rounded-xl bg-black object-cover"
-                          controls
-                          muted
-                        />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2">
                 <Button
@@ -623,48 +480,136 @@ export default function DashboardPage() {
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Preview workspace</CardTitle>
-            <p className="mt-1 text-xs text-white/45">
-              Full-page review with AI insights, attachments, and submission action.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="rounded-3xl border border-white/[0.10] bg-black/20 p-4">
-              <p className="text-sm text-white/75">
-                {draft
-                  ? "Draft is ready. Open the dedicated preview page to validate and submit."
-                  : "Generate a draft first, then open the preview page for final verification."}
-              </p>
+          <CardHeader className="flex flex-row items-center justify-between gap-3">
+            <div>
+              <CardTitle>Draft review</CardTitle>
+              <p className="mt-1 text-xs text-white/45">Preview + submit moved to a dedicated page.</p>
             </div>
             <Link
               href="/app/preview"
-              className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-white/[0.12] bg-[linear-gradient(135deg,rgb(var(--brand)_/_0.24),rgb(var(--brand-2)_/_0.16))] px-4 py-2 text-sm text-white/90 hover:bg-white/[0.10]"
+              className="rounded-full border border-white/[0.12] bg-white/[0.06] px-3 py-1.5 text-xs text-white/80 hover:bg-white/[0.09]"
             >
-              Open preview page
-              <ArrowUpRight className="h-4 w-4" />
+              Open preview
             </Link>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {draftMeta ? (
+              <div className="rounded-3xl border border-white/[0.10] bg-black/20 p-4">
+                <p className="text-xs font-medium tracking-[0.2em] text-white/45 uppercase">
+                  Latest draft status
+                </p>
+                <p className="mt-2 text-sm text-white/80">
+                  Severity <span className="font-semibold text-white/90">{draftMeta.ai.severityLabel}</span>{" "}
+                  <span className="text-white/55">({draftMeta.ai.severityScore}/100)</span> • Routed to{" "}
+                  <span className="font-semibold text-white/90">{draftMeta.ai.routedDepartment}</span>
+                </p>
+              </div>
+            ) : (
+              <div className="grid min-h-[120px] place-items-center rounded-3xl border border-white/[0.10] bg-black/20 p-5 text-center">
+                <div className="max-w-sm">
+                  <FileText className="mx-auto h-6 w-6 text-white/60" />
+                  <p className="mt-2 text-sm font-semibold text-white/85">No draft yet</p>
+                  <p className="mt-1 text-sm text-white/60">
+                    Generate a draft, then open Preview to review & submit.
+                  </p>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Past complaints</CardTitle>
-            <p className="mt-1 text-xs text-white/45">
-              Open the dedicated archive page to inspect all local proofs and complaint drafts.
-            </p>
-          </CardHeader>
-          <CardContent>
+          <CardHeader className="flex flex-row items-center justify-between gap-3">
+            <div>
+              <CardTitle>Recent submissions</CardTitle>
+              <p className="mt-1 text-xs text-white/45">Stored per account (MongoDB or memory)</p>
+            </div>
             <Link
               href="/app/local-complaints"
-              className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-white/[0.12] bg-white/[0.06] px-4 py-2 text-sm text-white/85 hover:bg-white/[0.10]"
+              className="inline-flex items-center gap-1 rounded-full border border-white/[0.12] bg-white/[0.06] px-3 py-1.5 text-xs text-white/80 hover:bg-white/[0.09]"
             >
-              Open local complaints page
-              <ArrowUpRight className="h-4 w-4" />
+              Archive
+              <ArrowUpRight className="h-3 w-3" />
             </Link>
+          </CardHeader>
+          <CardContent>
+            {historyLoading ? (
+              <p className="text-sm text-white/55">Loading…</p>
+            ) : history.length === 0 ? (
+              <p className="text-sm text-white/55">No submissions yet.</p>
+            ) : (
+              <ul className="space-y-3">
+                {history.map((h) => (
+                  <li
+                    key={h.id}
+                    className="rounded-2xl border border-white/[0.10] bg-black/20 px-4 py-3"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-mono text-xs text-white/70">{h.referenceId}</p>
+                      <div className="flex items-center gap-2">
+                        {h.emailSent ? (
+                          <span className="text-[10px] text-emerald-300/90">Emailed</span>
+                        ) : (
+                          <span className="text-[10px] text-white/45">No email</span>
+                        )}
+                        <Link
+                          href="/app/preview"
+                          onClick={() => {
+                            // Find the most complete version of this complaint (local or list item)
+                            const local = userId ? findLocalComplaint(userId, h.referenceId) : null;
+                            const saved = { ...h, ...local }; // Local often has more data if sync was partial
+
+                            const domain = DOMAINS.includes(saved.domain as ComplaintDomain)
+                              ? (saved.domain as ComplaintDomain)
+                              : DOMAINS[0]!;
+
+                            try {
+                              localStorage.setItem(
+                                "jansetu_preview_state_v1",
+                                JSON.stringify({
+                                  domain,
+                                  languageLabel: saved.languageLabel ?? "English (India)",
+                                  issueText: saved.issueText ?? "",
+                                  fullName: fullName.trim() || undefined,
+                                  email: email.trim() || undefined,
+                                  location: saved.locationLabel
+                                    ? { lng: 0, lat: 0, label: saved.locationLabel }
+                                    : undefined,
+                                  draft: {
+                                    subject: saved.draftSubject,
+                                    body: saved.draftBody ?? "",
+                                  },
+                                  ai: saved.ai ?? {
+                                    severityScore: 0,
+                                    severityLabel: "Medium",
+                                    routedDepartment: "—",
+                                  },
+                                  source: "fallback",
+                                  isSubmitted: true,
+                                }),
+                              );
+                            } catch {
+                              // ignore
+                            }
+                          }}
+                          className="rounded-full border border-white/[0.12] bg-white/[0.06] px-2.5 py-1 text-[10px] font-medium text-white/80 hover:bg-white/[0.09]"
+                        >
+                          View
+                        </Link>
+                      </div>
+                    </div>
+                    <p className="mt-1 text-sm text-white/85">{h.draftSubject}</p>
+                    <p className="mt-1 text-xs text-white/45">
+                      {h.domain} • {new Date(h.createdAt).toLocaleString()}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
           </CardContent>
         </Card>
       </div>
     </div>
   );
 }
+
