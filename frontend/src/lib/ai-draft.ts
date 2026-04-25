@@ -31,29 +31,9 @@ type AiServiceJson = {
   entities?: Record<string, string[]>;
 };
 
-function fallbackDraft(input: ComplaintDraftInput): DraftResult {
-  const letter = generateComplaintLetter(input);
-  const text = `${input.domain} ${input.issueText}`.toLowerCase();
-  let score = 22;
-  if (/(bribe|corruption|threat|unsafe|accident|death|fraud)/i.test(text)) score += 28;
-  if (/(urgent|immediate|danger)/i.test(text)) score += 12;
-  score = Math.min(100, score);
-  const label =
-    score >= 70 ? "High" : score >= 40 ? "Medium" : "Low";
-  const routed = routeDepartmentLocal(input.domain, input.issueText);
-  return {
-    subject: letter.subject,
-    body: letter.body,
-    ai: {
-      severityScore: score,
-      severityLabel: label,
-      routedDepartment: routed,
-      intent: inferIntentLocal(input.issueText),
-      entities: extractEntitiesLocal(input.issueText),
-    },
-    source: "fallback",
-  };
-}
+// ---------------------------------------------------------------------------
+// Local fallback helpers
+// ---------------------------------------------------------------------------
 
 function routeDepartmentLocal(domain: ComplaintDomain, issue: string): string {
   const d = domain.toLowerCase();
@@ -66,6 +46,8 @@ function routeDepartmentLocal(domain: ComplaintDomain, issue: string): string {
   if (d.includes("identity")) return "UIDAI / Regional Registrar (as applicable)";
   if (d.includes("corruption")) return "Vigilance / Anti-Corruption Authority (as applicable)";
   if (t.includes("water")) return "Municipal Water / Jal Board";
+  if (t.includes("garbage") || t.includes("waste") || t.includes("sanitation"))
+    return "Municipal Corporation / Sanitation Department";
   return "Concerned Department (auto-routed by JanSetu)";
 }
 
@@ -88,36 +70,97 @@ function extractEntitiesLocal(issue: string): Record<string, string[]> {
   return entities;
 }
 
+function computeSeverity(domain: string, issue: string): { score: number; label: string } {
+  const text = `${domain} ${issue}`.toLowerCase();
+  let score = 22;
+  if (/(bribe|bribery|corruption|extortion)/i.test(text)) score += 26;
+  if (/(threat|unsafe|accident|injury|death)/i.test(text)) score += 30;
+  if (/(fraud|forgery|fake)/i.test(text)) score += 18;
+  if (/(urgent|emergency|immediate|danger)/i.test(text)) score += 12;
+  score = Math.min(100, score);
+  const label = score >= 70 ? "High" : score >= 40 ? "Medium" : "Low";
+  return { score, label };
+}
+
+function fallbackDraft(input: ComplaintDraftInput): DraftResult {
+  const letter = generateComplaintLetter(input);
+  const { score, label } = computeSeverity(input.domain, input.issueText);
+  const routed = routeDepartmentLocal(input.domain as ComplaintDomain, input.issueText);
+  return {
+    subject: letter.subject,
+    body: letter.body,
+    ai: {
+      severityScore: score,
+      severityLabel: label,
+      routedDepartment: routed,
+      intent: inferIntentLocal(input.issueText),
+      entities: extractEntitiesLocal(input.issueText),
+    },
+    source: "fallback",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Main producer — tries AI microservice, always falls back safely
+// ---------------------------------------------------------------------------
+
 export async function produceDraft(input: ComplaintDraftInput): Promise<DraftResult> {
   const base = getAiServiceUrl().replace(/\/$/, "");
+
   try {
-    const res = await fetch(`${base}/v1/draft`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        issue_text: input.issueText,
-        domain: input.domain,
-        language_label: input.languageLabel,
-        full_name: input.fullName ?? "",
-        email: input.email ?? "",
-        location_label: input.locationLabel ?? "",
-        lat: input.lat ?? null,
-        lng: input.lng ?? null,
-      }),
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) return fallbackDraft(input);
-    const data = (await res.json()) as AiServiceJson;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20_000); // 20 s timeout
+
+    let res: Response;
+    try {
+      res = await fetch(`${base}/v1/draft`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          issue_text: input.issueText,
+          domain: input.domain,
+          language_label: input.languageLabel,
+          full_name: input.fullName ?? "",
+          email: input.email ?? "",
+          location_label: input.locationLabel ?? "",
+          lat: input.lat ?? null,
+          lng: input.lng ?? null,
+        }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!res.ok) {
+      console.warn(`[ai-draft] AI service returned ${res.status} — using local fallback`);
+      return fallbackDraft(input);
+    }
+
+    let data: AiServiceJson;
+    try {
+      data = (await res.json()) as AiServiceJson;
+    } catch {
+      console.warn("[ai-draft] AI service response was not valid JSON — using local fallback");
+      return fallbackDraft(input);
+    }
+
+    // Validate required fields
     if (
       typeof data.subject !== "string" ||
       typeof data.body !== "string" ||
       typeof data.severity_score !== "number" ||
       typeof data.severity_label !== "string" ||
-      typeof data.routed_department !== "string"
+      typeof data.routed_department !== "string" ||
+      !data.subject.trim() ||
+      !data.body.trim()
     ) {
+      console.warn("[ai-draft] AI service response missing required fields — using local fallback");
       return fallbackDraft(input);
     }
+
     if (!DOMAINS.includes(input.domain)) return fallbackDraft(input);
+
     return {
       subject: data.subject,
       body: data.body,
@@ -130,7 +173,10 @@ export async function produceDraft(input: ComplaintDraftInput): Promise<DraftRes
       },
       source: "ai_service",
     };
-  } catch {
+  } catch (err) {
+    // Network error, timeout, or anything else — silently fall back
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn(`[ai-draft] AI service unreachable (${reason}) — using local fallback`);
     return fallbackDraft(input);
   }
 }

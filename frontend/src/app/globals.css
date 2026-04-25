@@ -17,6 +17,9 @@
   --danger: 255 93 160;
 
   --shadow: 0 22px 60px rgba(0, 0, 0, 0.55);
+
+  /* Ensure native form popups (e.g., <select> options) use dark palette on Windows */
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -29,6 +32,13 @@ body {
   color: rgb(var(--fg));
   font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system,
     Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+/* Native select dropdown options: force readable contrast in dark UI */
+select option,
+select optgroup {
+  background-color: rgb(var(--card));
+  color: rgb(var(--fg));
 }
 
 ::selection {

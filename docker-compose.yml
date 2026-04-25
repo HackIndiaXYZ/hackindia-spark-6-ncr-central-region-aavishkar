@@ -14,7 +14,7 @@ services:
       - "6379:6379"
 
   ai-service:
-    build: ./ai-service
+    build: ./backend/ai-service
     restart: unless-stopped
     ports:
       - "8000:8000"
