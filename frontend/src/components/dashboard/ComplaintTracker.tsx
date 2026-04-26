@@ -4,20 +4,23 @@ import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  MOCK_COMPLAINTS,
   getStatusColor,
   getSeverityColor,
   type ComplaintStatus,
-  type ComplaintCategory,
-  type DashboardComplaint,
 } from "@/lib/dashboard-data";
 import { MapPin, ChevronDown, ChevronUp, Filter, X } from "lucide-react";
 
 const ALL_STATUSES: ComplaintStatus[] = ["Pending", "In Progress", "Resolved", "Rejected"];
-const ALL_CATEGORIES: ComplaintCategory[] = [
-  "Corruption", "Sanitation", "Roads", "Electricity", "Water Supply",
-  "Noise Pollution", "Public Safety", "Encroachment",
-];
+type TrackerComplaint = {
+  id: string;
+  domain: string;
+  draftSubject: string;
+  issueText: string;
+  createdAt: string;
+  locationLabel: string | null;
+  ai: { severityLabel: string } | null;
+  emailSent: boolean;
+};
 
 function StatusBadge({ status }: { status: ComplaintStatus }) {
   const color = getStatusColor(status);
@@ -32,7 +35,7 @@ function StatusBadge({ status }: { status: ComplaintStatus }) {
   );
 }
 
-function SeverityBadge({ severity }: { severity: DashboardComplaint["severity"] }) {
+function SeverityBadge({ severity }: { severity: "Low" | "Medium" | "High" | "Critical" }) {
   const color = getSeverityColor(severity);
   return (
     <span
@@ -44,7 +47,12 @@ function SeverityBadge({ severity }: { severity: DashboardComplaint["severity"] 
   );
 }
 
-function Timeline({ steps }: { steps: DashboardComplaint["timeline"] }) {
+function Timeline({ status }: { status: ComplaintStatus }) {
+  const steps = [
+    { label: "Filed", done: true, active: status === "Pending" },
+    { label: "In Progress", done: status === "In Progress" || status === "Resolved", active: status === "In Progress" },
+    { label: "Resolved", done: status === "Resolved", active: status === "Resolved" },
+  ];
   return (
     <div className="mt-3 flex items-center gap-0">
       {steps.map((step, i) => (
@@ -65,26 +73,44 @@ function Timeline({ steps }: { steps: DashboardComplaint["timeline"] }) {
             )}
           </div>
           <p className="mt-1 text-center text-[9px] text-white/40 leading-tight">{step.label}</p>
-          <p className="text-center text-[8px] text-white/25">{step.date}</p>
+          <p className="text-center text-[8px] text-white/25"> </p>
         </div>
       ))}
     </div>
   );
 }
 
-export function ComplaintTracker() {
+export function ComplaintTracker({ complaints }: { complaints: TrackerComplaint[] }) {
   const [statusFilter, setStatusFilter] = useState<ComplaintStatus | "All">("All");
-  const [categoryFilter, setCategoryFilter] = useState<ComplaintCategory | "All">("All");
+  const [categoryFilter, setCategoryFilter] = useState<string | "All">("All");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const allCategories = useMemo(
+    () => Array.from(new Set(complaints.map((c) => c.domain))).sort(),
+    [complaints],
+  );
 
   const filtered = useMemo(() => {
-    return MOCK_COMPLAINTS.filter((c) => {
+    return complaints
+      .map((c) => {
+        const severityText = c.ai?.severityLabel?.toLowerCase() ?? "medium";
+        const severity: "Low" | "Medium" | "High" | "Critical" =
+          severityText.includes("critical")
+            ? "Critical"
+            : severityText.includes("high")
+              ? "High"
+              : severityText.includes("low")
+                ? "Low"
+                : "Medium";
+        const status: ComplaintStatus = c.emailSent ? "Resolved" : "Pending";
+        return { ...c, severity, status };
+      })
+      .filter((c) => {
       if (statusFilter !== "All" && c.status !== statusFilter) return false;
-      if (categoryFilter !== "All" && c.category !== categoryFilter) return false;
+      if (categoryFilter !== "All" && c.domain !== categoryFilter) return false;
       return true;
     });
-  }, [statusFilter, categoryFilter]);
+  }, [complaints, statusFilter, categoryFilter]);
 
   return (
     <Card className="w-full">
@@ -135,10 +161,10 @@ export function ComplaintTracker() {
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   <span className="self-center text-xs text-white/40">Category:</span>
-                  {["All", ...ALL_CATEGORIES].map((c) => (
+                  {["All", ...allCategories].map((c) => (
                     <button
                       key={c}
-                      onClick={() => setCategoryFilter(c as ComplaintCategory | "All")}
+                      onClick={() => setCategoryFilter(c as string | "All")}
                       className={`rounded-lg px-2.5 py-1 text-xs transition-all ${
                         categoryFilter === c
                           ? "bg-[rgb(var(--brand-2))/0.15] text-[rgb(var(--brand-2))] ring-1 ring-[rgb(var(--brand-2))/0.3]"
@@ -182,13 +208,13 @@ export function ComplaintTracker() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
-                      <p className="truncate text-sm font-semibold text-white/90">{c.title}</p>
+                      <p className="truncate text-sm font-semibold text-white/90">{c.draftSubject}</p>
                       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                        <span className="text-xs text-white/45">{c.category}</span>
+                        <span className="text-xs text-white/45">{c.domain}</span>
                         <span className="flex items-center gap-1 text-xs text-white/40">
-                          <MapPin className="h-3 w-3" />{c.location}
+                          <MapPin className="h-3 w-3" />{c.locationLabel ?? "Location not set"}
                         </span>
-                        <span className="text-xs text-white/35">{new Date(c.dateField).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>
+                        <span className="text-xs text-white/35">{new Date(c.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>
                       </div>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1.5">
@@ -210,15 +236,15 @@ export function ComplaintTracker() {
                       transition={{ duration: 0.2 }}
                       className="border-t border-white/[0.06] px-4 pb-4"
                     >
-                      <p className="mt-3 text-sm leading-relaxed text-white/60">{c.description}</p>
+                      <p className="mt-3 text-sm leading-relaxed text-white/60">{c.issueText}</p>
                       <div className="mt-2 flex gap-3 text-xs text-white/40">
-                        {c.hasEvidence && <span>📷 Evidence uploaded</span>}
-                        {c.hasPreciseLocation && <span>📍 Precise location</span>}
-                        <span>⚡ +{c.points} pts earned</span>
+                        <span>🧾 Ref: {c.id}</span>
+                        {c.locationLabel ? <span>📍 Precise location</span> : null}
+                        <span>⚡ Severity: {c.severity}</span>
                       </div>
                       <div className="mt-3">
                         <p className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-1">Progress Timeline</p>
-                        <Timeline steps={c.timeline} />
+                        <Timeline status={c.status} />
                       </div>
                     </motion.div>
                   )}

@@ -1,14 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MOCK_ACHIEVEMENTS, getLevel, getLevelProgress } from "@/lib/dashboard-data";
+import { getLevel, getLevelProgress } from "@/lib/dashboard-data";
 import { Zap, Share2 } from "lucide-react";
 
 interface GamificationPanelProps {
   points: number;
   streak: number;
+  complaintCount: number;
+  resolvedCount: number;
 }
 
 const LEVELS = [
@@ -18,10 +20,23 @@ const LEVELS = [
   { label: "City Guardian", min: 400, max: Infinity, color: "#ff5da0" },
 ];
 
-export function GamificationPanel({ points, streak }: GamificationPanelProps) {
+export function GamificationPanel({
+  points,
+  streak,
+  complaintCount,
+  resolvedCount,
+}: GamificationPanelProps) {
   const [sharedId, setSharedId] = useState<string | null>(null);
   const level = getLevel(points);
   const progress = getLevelProgress(points);
+  const achievements = [
+    { id: "a1", title: "First Complaint", description: "Filed your first complaint", icon: "🌱", earned: complaintCount >= 1, color: "#4ade80" },
+    { id: "a2", title: "5 Issues Reported", description: "Reported 5 civic issues", icon: "⭐", earned: complaintCount >= 5, color: "#ffc448" },
+    { id: "a3", title: "Fast Resolver", description: "At least 1 complaint marked as resolved", icon: "⚡", earned: resolvedCount >= 1, color: "#6affed" },
+    { id: "a4", title: "Streak Builder", description: "Maintained 3-day dashboard streak", icon: "🔥", earned: streak >= 3, color: "#a080ff" },
+    { id: "a5", title: "10 Issues Reported", description: "Reported 10 civic issues", icon: "🔟", earned: complaintCount >= 10, color: "#9ca3af" },
+    { id: "a6", title: "City Guardian", description: "Reach 400+ points", icon: "🛡️", earned: points >= 400, color: "#9ca3af" },
+  ];
 
   function handleShare(achievementTitle: string, id: string) {
     const text = `🏆 I just earned the "${achievementTitle}" badge on JanSetu-AI! Join me in making our city better. #JanSetuAI #CivicEngagement`;
@@ -127,7 +142,7 @@ export function GamificationPanel({ points, streak }: GamificationPanelProps) {
         <div>
           <p className="mb-3 text-xs font-semibold text-white/60 uppercase tracking-wider">Achievements</p>
           <div className="grid grid-cols-4 gap-2">
-            {MOCK_ACHIEVEMENTS.map((a) => (
+            {achievements.map((a) => (
               <div key={a.id} className="group relative">
                 <motion.div
                   whileHover={{ scale: 1.1 }}

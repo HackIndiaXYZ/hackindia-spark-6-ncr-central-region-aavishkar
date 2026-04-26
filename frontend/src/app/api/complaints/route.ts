@@ -22,6 +22,10 @@ export async function GET() {
       domain: r.domain,
       createdAt,
       draftSubject: r.draft.subject,
+      issueText: r.issueText,
+      locationLabel: r.location?.label ?? null,
+      location: r.location ?? null,
+      ai: r.ai ?? null,
       emailSent: r.emailSent,
     };
   });

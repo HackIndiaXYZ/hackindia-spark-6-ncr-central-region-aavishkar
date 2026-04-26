@@ -1,8 +1,44 @@
+"use client";
+
 import Link from "next/link";
-import { LinkButton } from "@/components/ui/button";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { Button, LinkButton } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export function Navbar({ variant = "marketing" }: { variant?: "marketing" | "app" }) {
+  const router = useRouter();
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await fetch("/api/me", { credentials: "include" });
+        const data = (await res.json().catch(() => ({}))) as {
+          user?: { id?: string } | null;
+        };
+        if (cancelled) return;
+        setIsAuthenticated(Boolean(data.user?.id));
+      } catch {
+        if (cancelled) return;
+        setIsAuthenticated(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function signOut() {
+    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    setIsAuthenticated(false);
+    router.push("/");
+    router.refresh();
+  }
+
   return (
     <header
       className={cn(
@@ -25,6 +61,18 @@ export function Navbar({ variant = "marketing" }: { variant?: "marketing" | "app
         {variant === "marketing" ? (
           <nav className="flex items-center gap-2">
             <Link
+              href="/app"
+              className="hidden rounded-full px-3 py-2 text-sm text-white/70 hover:text-white/90 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 sm:inline-flex"
+            >
+              File Complaint
+            </Link>
+            <Link
+              href="/app/citizen-dashboard"
+              className="hidden rounded-full px-3 py-2 text-sm text-white/70 hover:text-white/90 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 sm:inline-flex"
+            >
+              Dashboard
+            </Link>
+            <Link
               href="#features"
               className="hidden rounded-full px-3 py-2 text-sm text-white/70 hover:text-white/90 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 sm:inline-flex"
             >
@@ -36,12 +84,22 @@ export function Navbar({ variant = "marketing" }: { variant?: "marketing" | "app
             >
               About
             </Link>
-            <LinkButton href="/login" variant="secondary" size="sm">
-              Log in
-            </LinkButton>
-            <LinkButton href="/register" variant="primary" size="sm">
-              Get started
-            </LinkButton>
+            {isAuthenticated === null ? null : isAuthenticated ? (
+              <>
+                <Button type="button" variant="primary" size="sm" onClick={() => void signOut()}>
+                  Sign out
+                </Button>
+              </>
+            ) : (
+              <>
+                <LinkButton href="/login" variant="secondary" size="sm">
+                  Log in
+                </LinkButton>
+                <LinkButton href="/register" variant="primary" size="sm">
+                  Get started
+                </LinkButton>
+              </>
+            )}
           </nav>
         ) : (
           <nav className="flex items-center gap-2">

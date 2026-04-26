@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MOCK_COMPLAINTS, getStatusColor, getSeverityColor } from "@/lib/dashboard-data";
+import type { ComplaintSeverity, ComplaintStatus } from "@/lib/dashboard-data";
+import { getStatusColor, getSeverityColor } from "@/lib/dashboard-data";
 import { MapPin, X } from "lucide-react";
 
 // Dynamic import for Leaflet to avoid SSR issues
@@ -11,15 +12,26 @@ let L: typeof import("leaflet") | null = null;
 interface PreviewComplaint {
   title: string;
   category: string;
-  status: string;
-  severity: string;
+  status: ComplaintStatus;
+  severity: ComplaintSeverity;
   location: string;
   date: string;
 }
 
-export function CommunityMap() {
+export function CommunityMap({
+  complaints,
+}: {
+  complaints: Array<{
+    draftSubject: string;
+    domain: string;
+    createdAt: string;
+    location: { lng: number; lat: number; label?: string } | null;
+    ai: { severityLabel: string } | null;
+    emailSent: boolean;
+  }>;
+}) {
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<any>(null);
+  const mapInstanceRef = useRef<import("leaflet").Map | null>(null);
   const [preview, setPreview] = useState<PreviewComplaint | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -27,11 +39,13 @@ export function CommunityMap() {
     if (!mapRef.current || mapInstanceRef.current) return;
 
     import("leaflet").then((leafletModule) => {
-      L = leafletModule.default ?? leafletModule as any;
+      const leaflet = (leafletModule.default ?? leafletModule) as typeof import("leaflet");
+      L = leaflet;
 
       // Fix default marker icon (Leaflet + Next.js issue)
       if (L) {
-        delete (L.Icon.Default.prototype as any)._getIconUrl;
+        const defaultProto = L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown };
+        delete defaultProto._getIconUrl;
         L.Icon.Default.mergeOptions({
           iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
           iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
@@ -55,11 +69,22 @@ export function CommunityMap() {
       ).addTo(map);
 
       // Add complaints as colored circle markers
-      MOCK_COMPLAINTS.forEach((c) => {
+      complaints
+        .filter((c) => c.location && Number.isFinite(c.location.lat) && Number.isFinite(c.location.lng))
+        .forEach((c) => {
         if (!L) return;
-        const color = getSeverityColor(c.severity);
-        const circle = L.circleMarker([c.lat, c.lng], {
-          radius: c.severity === "Critical" ? 14 : c.severity === "High" ? 11 : 8,
+        const severity = c.ai?.severityLabel?.toLowerCase() ?? "medium";
+        const severityLabel =
+          severity.includes("critical")
+            ? "Critical"
+            : severity.includes("high")
+              ? "High"
+              : severity.includes("low")
+                ? "Low"
+                : "Medium";
+        const color = getSeverityColor(severityLabel);
+        const circle = L.circleMarker([c.location!.lat, c.location!.lng], {
+          radius: severityLabel === "Critical" ? 14 : severityLabel === "High" ? 11 : 8,
           fillColor: color,
           color: color,
           weight: 2,
@@ -69,16 +94,16 @@ export function CommunityMap() {
 
         circle.on("click", () => {
           setPreview({
-            title: c.title,
-            category: c.category,
-            status: c.status,
-            severity: c.severity,
-            location: c.location,
-            date: new Date(c.dateField).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }),
+            title: c.draftSubject,
+            category: c.domain,
+            status: c.emailSent ? "Resolved" : "Pending",
+            severity: severityLabel,
+            location: c.location?.label ?? `${c.location?.lat}, ${c.location?.lng}`,
+            date: new Date(c.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }),
           });
         });
 
-        circle.bindTooltip(c.title, {
+        circle.bindTooltip(c.draftSubject, {
           className: "leaflet-dark-tooltip",
           direction: "top",
           offset: [0, -8],
@@ -95,7 +120,7 @@ export function CommunityMap() {
         mapInstanceRef.current = null;
       }
     };
-  }, []);
+  }, [complaints]);
 
   return (
     <Card className="relative overflow-hidden">
@@ -141,13 +166,13 @@ export function CommunityMap() {
                     <span className="text-white/50">{preview.category}</span>
                     <span
                       className="rounded-full px-2 py-0.5 font-semibold"
-                      style={{ background: `${getStatusColor(preview.status as any)}20`, color: getStatusColor(preview.status as any) }}
+                      style={{ background: `${getStatusColor(preview.status)}20`, color: getStatusColor(preview.status) }}
                     >
                       {preview.status}
                     </span>
                     <span
                       className="rounded-full px-2 py-0.5 font-semibold"
-                      style={{ background: `${getSeverityColor(preview.severity as any)}20`, color: getSeverityColor(preview.severity as any) }}
+                      style={{ background: `${getSeverityColor(preview.severity)}20`, color: getSeverityColor(preview.severity) }}
                     >
                       {preview.severity}
                     </span>

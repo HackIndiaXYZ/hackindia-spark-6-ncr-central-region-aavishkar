@@ -5,7 +5,7 @@ import { Footer } from "@/components/chrome/footer";
 import { Navbar } from "@/components/chrome/navbar";
 import { LinkButton } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   ArrowRight,
   BadgeCheck,
@@ -20,6 +20,30 @@ import {
 import { motion } from "framer-motion";
 
 export default function Home() {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await fetch("/api/me", { credentials: "include" });
+        const data = (await res.json().catch(() => ({}))) as {
+          user?: { id?: string } | null;
+        };
+        if (cancelled) return;
+        setIsAuthenticated(Boolean(data.user?.id));
+      } catch {
+        if (cancelled) return;
+        setIsAuthenticated(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="relative min-h-full overflow-hidden">
       <AmbientBackground />
@@ -75,8 +99,13 @@ export default function Home() {
               </div>
 
               <div className="mt-6 flex items-center gap-4 text-sm font-medium text-white/50">
-                 <LinkButton href="/register" variant="secondary" className="px-5 py-2 hover:bg-white/10 hover:text-white transition-all">
-                   Start Filing Complaint <ArrowRight className="ml-2 h-4 w-4" />
+                 <LinkButton
+                   href={isAuthenticated ? "/app" : "/register"}
+                   variant="secondary"
+                   className="px-5 py-2 hover:bg-white/10 hover:text-white transition-all"
+                 >
+                   {isAuthenticated ? "Open Dashboard" : "Start Filing Complaint"}{" "}
+                   <ArrowRight className="ml-2 h-4 w-4" />
                  </LinkButton>
                  <span className="hidden sm:inline-block">•</span>
                  <a href="/app" className="hidden sm:inline-block hover:text-white transition-colors underline underline-offset-4">Try Demo</a>
@@ -254,9 +283,11 @@ export default function Home() {
                     <LinkButton href="/app" variant="primary" size="md" className="transition-transform hover:scale-105">
                       Open dashboard <ArrowRight className="h-4 w-4" />
                     </LinkButton>
-                    <LinkButton href="/login" variant="secondary" size="md" className="transition-colors hover:bg-white/10 hover:text-white">
-                      Log in
-                    </LinkButton>
+                    {isAuthenticated ? null : (
+                      <LinkButton href="/login" variant="secondary" size="md" className="transition-colors hover:bg-white/10 hover:text-white">
+                        Log in
+                      </LinkButton>
+                    )}
                   </div>
                 </CardContent>
               </Card>

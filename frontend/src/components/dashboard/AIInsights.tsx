@@ -1,16 +1,79 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MOCK_AI_INSIGHTS } from "@/lib/dashboard-data";
 import { Brain, ArrowRight } from "lucide-react";
 import { motion } from "framer-motion";
+import { useState } from "react";
 
 interface AIInsightsProps {
   expanded?: boolean;
+  complaints: Array<{
+    domain: string;
+    ai: { severityScore: number; severityLabel: string; routedDepartment: string } | null;
+    createdAt: string;
+  }>;
 }
 
-export function AIInsights({ expanded = false }: AIInsightsProps) {
-  const insights = expanded ? MOCK_AI_INSIGHTS : MOCK_AI_INSIGHTS.slice(0, 2);
+export function AIInsights({ expanded = false, complaints }: AIInsightsProps) {
+  const [renderedAt] = useState(() => Date.now());
+  const total = complaints.length;
+  const avgSeverity =
+    total === 0
+      ? 0
+      : Math.round(
+          complaints.reduce((sum, c) => sum + (c.ai?.severityScore ?? 0), 0) / total,
+        );
+  const domainCount = new Map<string, number>();
+  const deptCount = new Map<string, number>();
+  for (const complaint of complaints) {
+    domainCount.set(complaint.domain, (domainCount.get(complaint.domain) ?? 0) + 1);
+    if (complaint.ai?.routedDepartment) {
+      deptCount.set(
+        complaint.ai.routedDepartment,
+        (deptCount.get(complaint.ai.routedDepartment) ?? 0) + 1,
+      );
+    }
+  }
+  const topDomain =
+    Array.from(domainCount.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "No complaints yet";
+  const topDepartment =
+    Array.from(deptCount.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "N/A";
+  const recent30Days = complaints.filter((c) => {
+    const created = new Date(c.createdAt).getTime();
+    return renderedAt - created <= 30 * 24 * 60 * 60 * 1000;
+  }).length;
+
+  const insights = [
+    {
+      title: "Most reported category",
+      value: topDomain,
+      detail: `${total} total complaint${total === 1 ? "" : "s"} recorded for this account.`,
+      icon: "📌",
+      color: "#ffc448",
+    },
+    {
+      title: "Average severity",
+      value: `${avgSeverity}/100`,
+      detail: "Computed from AI severity scores on saved complaints.",
+      icon: "📊",
+      color: "#6affed",
+    },
+    {
+      title: "Most routed department",
+      value: topDepartment,
+      detail: "Department that appears most in AI routing outputs.",
+      icon: "🏛️",
+      color: "#a080ff",
+    },
+    {
+      title: "Recent activity",
+      value: `${recent30Days} in 30 days`,
+      detail: "Complaints filed in the last 30 days.",
+      icon: "🗓️",
+      color: "#ff5da0",
+    },
+  ];
+  const visibleInsights = expanded ? insights : insights.slice(0, 2);
 
   return (
     <Card className="relative overflow-hidden">
@@ -26,7 +89,7 @@ export function AIInsights({ expanded = false }: AIInsightsProps) {
       </CardHeader>
       <CardContent>
         <div className={`grid gap-3 ${expanded ? "sm:grid-cols-2" : ""}`}>
-          {MOCK_AI_INSIGHTS.map((insight, i) => (
+          {visibleInsights.map((insight, i) => (
             <motion.div
               key={insight.title}
               initial={{ opacity: 0, y: 8 }}
@@ -56,7 +119,7 @@ export function AIInsights({ expanded = false }: AIInsightsProps) {
         <div className="mt-4 flex items-center justify-between rounded-2xl border border-[rgba(160,128,255,0.2)] bg-[rgba(160,128,255,0.08)] px-4 py-3">
           <div>
             <p className="text-xs font-semibold text-[rgb(var(--brand-2))]">Similar Complaints Near You</p>
-            <p className="text-xs text-white/50 mt-0.5">7 active reports within 2km of your last complaint</p>
+            <p className="text-xs text-white/50 mt-0.5">Insights are now generated from your saved complaints only.</p>
           </div>
           <button className="flex shrink-0 items-center gap-1 rounded-xl border border-[rgba(160,128,255,0.3)] bg-[rgba(160,128,255,0.15)] px-3 py-1.5 text-xs text-[rgb(var(--brand-2))] transition-all hover:bg-[rgba(160,128,255,0.25)]">
             View <ArrowRight className="h-3.5 w-3.5" />

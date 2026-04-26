@@ -1,40 +1,144 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { ProfileCard } from "@/components/dashboard/ProfileCard";
 import { GamificationPanel } from "@/components/dashboard/GamificationPanel";
 import { ComplaintTracker } from "@/components/dashboard/ComplaintTracker";
 import { ImpactDashboard } from "@/components/dashboard/ImpactDashboard";
-import { Leaderboard } from "@/components/dashboard/Leaderboard";
 import { AIInsights } from "@/components/dashboard/AIInsights";
 import { CommunityMap } from "@/components/dashboard/CommunityMap";
 import { LocalArchivePanel } from "@/components/dashboard/LocalArchivePanel";
-import { NotificationBell } from "@/components/dashboard/NotificationBell";
 import { QuickActions } from "@/components/dashboard/QuickActions";
 import { EditProfileModal } from "@/components/dashboard/EditProfileModal";
-import { MOCK_USER } from "@/lib/dashboard-data";
 import {
-  LayoutDashboard, Trophy, MapPin, Brain, BarChart2, ShieldCheck, Archive,
+  LayoutDashboard,
+  MapPin,
+  Brain,
+  BarChart2,
+  ShieldCheck,
+  Archive,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const TABS = [
-  { id: "overview",     label: "Overview",       icon: LayoutDashboard },
-  { id: "complaints",   label: "Complaints",     icon: ShieldCheck },
-  { id: "archive",      label: "Local Archive",  icon: Archive },
-  { id: "impact",       label: "Impact",         icon: BarChart2 },
-  { id: "leaderboard",  label: "Leaderboard",    icon: Trophy },
-  { id: "map",          label: "Community Map",   icon: MapPin },
-  { id: "ai",           label: "AI Insights",    icon: Brain },
+  { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "complaints", label: "Complaints", icon: ShieldCheck },
+  { id: "archive", label: "Local Archive", icon: Archive },
+  { id: "impact", label: "Impact", icon: BarChart2 },
+  { id: "map", label: "Community Map", icon: MapPin },
+  { id: "ai", label: "AI Insights", icon: Brain },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
+type DashboardComplaint = {
+  id: string;
+  referenceId: string;
+  domain: string;
+  createdAt: string;
+  draftSubject: string;
+  issueText: string;
+  locationLabel: string | null;
+  location: { lng: number; lat: number; label?: string } | null;
+  ai: { severityScore: number; severityLabel: string; routedDepartment: string } | null;
+  emailSent: boolean;
+};
+
+type DashboardUser = {
+  name: string;
+  email: string;
+  avatar: string;
+  totalComplaints: number;
+  resolvedComplaints: number;
+  points: number;
+  streakDays: number;
+  trustScore: number;
+  joinedDate: string;
+  profileCompletion: number;
+  anonymousMode: boolean;
+};
 
 export default function CitizenDashboardPage() {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
-  const [user, setUser] = useState(MOCK_USER);
+  const [user, setUser] = useState<DashboardUser>({
+    name: "Citizen",
+    email: "",
+    avatar: "CI",
+    totalComplaints: 0,
+    resolvedComplaints: 0,
+    points: 0,
+    streakDays: 0,
+    trustScore: 0,
+    joinedDate: new Date().toLocaleDateString("en-IN", { month: "long", year: "numeric" }),
+    profileCompletion: 40,
+    anonymousMode: false,
+  });
+  const [complaints, setComplaints] = useState<DashboardComplaint[]>([]);
   const [editOpen, setEditOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [meRes, complaintsRes] = await Promise.all([
+          fetch("/api/me", { credentials: "include" }),
+          fetch("/api/complaints", { credentials: "include" }),
+        ]);
+
+        const meData = (await meRes.json().catch(() => ({}))) as {
+          user?: { email?: string; username?: string } | null;
+        };
+        const complaintData = (await complaintsRes.json().catch(() => ({}))) as {
+          items?: DashboardComplaint[];
+        };
+
+        if (cancelled) return;
+
+        const rows = Array.isArray(complaintData.items) ? complaintData.items : [];
+        setComplaints(rows);
+
+        const resolvedCount = rows.filter((c) => c.emailSent).length;
+        const points = rows.reduce((sum, c) => {
+          const score = c.ai?.severityScore ?? 0;
+          return sum + Math.max(5, Math.round(score / 10));
+        }, 0);
+        const trustScore = rows.length === 0 ? 0 : Math.min(100, Math.round((resolvedCount / rows.length) * 100));
+        const profileCompletion = [meData.user?.username, meData.user?.email].filter(Boolean).length === 2 ? 85 : 60;
+        const avatar = (meData.user?.username ?? "CI")
+          .split(" ")
+          .map((x) => x[0])
+          .join("")
+          .slice(0, 2)
+          .toUpperCase();
+        setUser((prev) => ({
+          ...prev,
+          name: meData.user?.username?.trim() || "Citizen",
+          email: meData.user?.email?.trim().toLowerCase() || "",
+          avatar: avatar || "CI",
+          totalComplaints: rows.length,
+          resolvedComplaints: resolvedCount,
+          points,
+          streakDays: rows.length > 0 ? Math.min(7, rows.length) : 0,
+          trustScore,
+          profileCompletion,
+          joinedDate: prev.joinedDate,
+          anonymousMode: prev.anonymousMode,
+        }));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const headerSubtitle = useMemo(() => {
+    if (loading) return "Syncing dashboard with saved complaints...";
+    return `Live view from datastore • ${complaints.length} complaint${complaints.length === 1 ? "" : "s"} loaded`;
+  }, [loading, complaints.length]);
 
   return (
     <div className="relative min-h-screen pb-32">
@@ -49,10 +153,9 @@ export default function CitizenDashboardPage() {
             Citizen Dashboard
           </motion.h1>
           <p className="mt-1 text-sm text-white/50">
-            Your civic impact hub — track, engage, and lead.
+            {headerSubtitle}
           </p>
         </div>
-        <NotificationBell />
       </div>
 
       {/* Tab nav */}
@@ -89,24 +192,25 @@ export default function CitizenDashboardPage() {
             {/* Left column: Profile + Gamification + Local Archive summary */}
             <div className="lg:col-span-4 flex flex-col gap-5">
               <ProfileCard user={user} onEdit={() => setEditOpen(true)} />
-              <GamificationPanel points={user.points} streak={user.streakDays} />
+              <GamificationPanel
+                points={user.points}
+                streak={user.streakDays}
+                complaintCount={user.totalComplaints}
+                resolvedCount={user.resolvedComplaints}
+              />
             </div>
             {/* Right column: Impact + AI Insights + Leaderboard */}
             <div className="lg:col-span-8 flex flex-col gap-5">
-              <ImpactDashboard />
-              <div className="grid gap-5 md:grid-cols-2">
-                <AIInsights />
-                <Leaderboard />
-              </div>
+              <ImpactDashboard complaints={complaints} />
+              <AIInsights complaints={complaints} />
             </div>
           </div>
         )}
-        {activeTab === "complaints" && <ComplaintTracker />}
+        {activeTab === "complaints" && <ComplaintTracker complaints={complaints} />}
         {activeTab === "archive" && <LocalArchivePanel />}
-        {activeTab === "impact" && <ImpactDashboard expanded />}
-        {activeTab === "leaderboard" && <Leaderboard />}
-        {activeTab === "map" && <CommunityMap />}
-        {activeTab === "ai" && <AIInsights expanded />}
+        {activeTab === "impact" && <ImpactDashboard complaints={complaints} expanded />}
+        {activeTab === "map" && <CommunityMap complaints={complaints} />}
+        {activeTab === "ai" && <AIInsights complaints={complaints} expanded />}
       </motion.div>
 
       {/* Floating quick actions */}
