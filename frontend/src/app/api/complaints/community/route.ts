@@ -1,0 +1,33 @@
+import { NextResponse } from "next/server";
+import { readSession } from "@/lib/session";
+import { complaintsRepo } from "@/lib/db";
+import type { MemoryComplaint } from "@/lib/memory-db";
+import type { ComplaintRecord } from "@/lib/db";
+
+export async function GET() {
+  const session = await readSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const rows = await complaintsRepo.listCommunity(200);
+  const items = rows.map((r: ComplaintRecord | MemoryComplaint) => {
+    const id =
+      "_id" in r && r._id ? r._id.toHexString() : (r as MemoryComplaint).id;
+    const createdAt =
+      r.createdAt instanceof Date ? r.createdAt.toISOString() : String(r.createdAt);
+    return {
+      id,
+      domain: r.domain,
+      createdAt,
+      draftSubject: r.draft.subject,
+      issueText: r.issueText,
+      locationLabel: r.location?.label ?? null,
+      location: r.location ?? null,
+      ai: r.ai ?? null,
+      emailSent: r.emailSent,
+    };
+  });
+
+  return NextResponse.json({ items });
+}

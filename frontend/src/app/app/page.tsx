@@ -11,6 +11,8 @@ import {
   Send,
   Sparkles,
   ArrowUpRight,
+  ImagePlus,
+  X,
 } from "lucide-react";
 import { LocationPicker } from "@/components/map/location-picker";
 import { Button } from "@/components/ui/button";
@@ -28,12 +30,54 @@ import {
 } from "@/lib/local-complaints";
 import { getSpeechRecognitionCtor, startSpeechRecognition } from "@/lib/speech";
 import { cn } from "@/lib/utils";
-import { setPendingPreview } from "@/lib/preview-runtime-store";
+import {
+  setPendingPreview,
+  type PendingPreviewAttachment,
+} from "@/lib/preview-runtime-store";
 
 type Message = {
   role: "user" | "assistant";
   content: string;
 };
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
+}
+
+function SelectedImagePreview({
+  attachment,
+  onRemove,
+}: {
+  attachment: PendingPreviewAttachment;
+  onRemove: () => void;
+}) {
+  const url = useMemo(() => URL.createObjectURL(attachment.file), [attachment.file]);
+
+  useEffect(() => {
+    return () => URL.revokeObjectURL(url);
+  }, [url]);
+
+  return (
+    <li className="rounded-2xl border border-white/[0.10] bg-black/20 p-2">
+      <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-white/65">
+        <span className="truncate">{attachment.name}</span>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="rounded-md border border-white/[0.12] bg-white/[0.04] p-1 text-white/60 hover:bg-white/[0.08] hover:text-white/80"
+          title="Remove image"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      </div>
+      <img src={url} alt={attachment.name} className="h-28 w-full rounded-xl object-cover" />
+      <p className="mt-1 text-[11px] text-white/45">{formatBytes(attachment.size)}</p>
+    </li>
+  );
+}
 
 
 
@@ -95,6 +139,7 @@ export default function DashboardPage() {
     ai: DraftAiMeta;
     source: "ai_service" | "fallback";
   } | null>(null);
+  const [attachments, setAttachments] = useState<PendingPreviewAttachment[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
 
@@ -169,6 +214,27 @@ export default function DashboardPage() {
 
   function pushAssistant(text: string) {
     setMessages((m) => [...m, { role: "assistant", content: text }]);
+  }
+
+  function handleImageSelection(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+
+    const next = files
+      .filter((file) => file.type.startsWith("image/"))
+      .map((file) => ({
+        id: crypto.randomUUID(),
+        name: file.name,
+        mimeType: file.type,
+        size: file.size,
+        kind: "image" as const,
+        file,
+      }));
+
+    if (next.length > 0) {
+      setAttachments((prev) => [...prev, ...next].slice(0, 6));
+    }
+    e.target.value = "";
   }
 
   async function handleSend() {
@@ -255,7 +321,7 @@ export default function DashboardPage() {
           : undefined,
         draft: data.draft,
         ai: data.ai,
-        attachments: [],
+        attachments,
       });
 
       pushAssistant(
@@ -441,6 +507,47 @@ export default function DashboardPage() {
                       : "Voice not supported in this browser."}
               </div>
             </div>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <p className="text-sm text-white/70">Evidence Images</p>
+            </div>
+            <label
+              htmlFor="complaint-images"
+              className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-white/[0.18] bg-white/[0.04] px-4 py-3 text-sm text-white/75 hover:bg-white/[0.08]"
+            >
+              <ImagePlus className="h-4 w-4" />
+              Add images (up to 6)
+            </label>
+            <input
+              id="complaint-images"
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleImageSelection}
+              className="hidden"
+            />
+            {attachments.length === 0 ? (
+              <p className="text-xs text-white/50">No images selected yet.</p>
+            ) : (
+              <>
+                <p className="text-xs text-white/55">
+                  {attachments.length} image(s) will be available in Preview.
+                </p>
+                <ul className="grid gap-2 sm:grid-cols-2">
+                  {attachments.map((attachment) => (
+                    <SelectedImagePreview
+                      key={attachment.id}
+                      attachment={attachment}
+                      onRemove={() =>
+                        setAttachments((prev) => prev.filter((x) => x.id !== attachment.id))
+                      }
+                    />
+                  ))}
+                </ul>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>

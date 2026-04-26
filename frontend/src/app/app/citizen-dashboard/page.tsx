@@ -8,7 +8,6 @@ import { ComplaintTracker } from "@/components/dashboard/ComplaintTracker";
 import { ImpactDashboard } from "@/components/dashboard/ImpactDashboard";
 import { AIInsights } from "@/components/dashboard/AIInsights";
 import { CommunityMap } from "@/components/dashboard/CommunityMap";
-import { LocalArchivePanel } from "@/components/dashboard/LocalArchivePanel";
 import { QuickActions } from "@/components/dashboard/QuickActions";
 import { EditProfileModal } from "@/components/dashboard/EditProfileModal";
 import {
@@ -24,7 +23,7 @@ import { cn } from "@/lib/utils";
 const TABS = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "complaints", label: "Complaints", icon: ShieldCheck },
-  { id: "archive", label: "Local Archive", icon: Archive },
+  { id: "archive", label: "Recent Complaints", icon: Archive },
   { id: "impact", label: "Impact", icon: BarChart2 },
   { id: "map", label: "Community Map", icon: MapPin },
   { id: "ai", label: "AI Insights", icon: Brain },
@@ -58,6 +57,44 @@ type DashboardUser = {
   anonymousMode: boolean;
 };
 
+function RecentComplaintsPanel({
+  complaints,
+}: {
+  complaints: DashboardComplaint[];
+}) {
+  const recent = complaints.slice(0, 15);
+  return (
+    <div className="rounded-2xl border border-white/[0.08] bg-black/20 p-4">
+      <div className="mb-3">
+        <h3 className="text-base font-semibold text-white">Recent Complaints (All Users)</h3>
+        <p className="mt-1 text-xs text-white/50">
+          Latest submissions from the community datastore.
+        </p>
+      </div>
+      {recent.length === 0 ? (
+        <p className="text-sm text-white/55">No community complaints found yet.</p>
+      ) : (
+        <ul className="space-y-2">
+          {recent.map((c) => (
+            <li
+              key={c.id}
+              className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2"
+            >
+              <p className="text-sm font-medium text-white/90">{c.draftSubject}</p>
+              <p className="mt-0.5 text-xs text-white/55">
+                {c.domain} • {new Date(c.createdAt).toLocaleString("en-IN")}
+              </p>
+              <p className="mt-0.5 text-xs text-white/45">
+                {c.locationLabel ?? "Location not provided"}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export default function CitizenDashboardPage() {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [user, setUser] = useState<DashboardUser>({
@@ -74,6 +111,7 @@ export default function CitizenDashboardPage() {
     anonymousMode: false,
   });
   const [complaints, setComplaints] = useState<DashboardComplaint[]>([]);
+  const [communityComplaints, setCommunityComplaints] = useState<DashboardComplaint[]>([]);
   const [editOpen, setEditOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -81,9 +119,10 @@ export default function CitizenDashboardPage() {
     let cancelled = false;
     (async () => {
       try {
-        const [meRes, complaintsRes] = await Promise.all([
+        const [meRes, complaintsRes, communityRes] = await Promise.all([
           fetch("/api/me", { credentials: "include" }),
           fetch("/api/complaints", { credentials: "include" }),
+          fetch("/api/complaints/community", { credentials: "include" }),
         ]);
 
         const meData = (await meRes.json().catch(() => ({}))) as {
@@ -92,11 +131,16 @@ export default function CitizenDashboardPage() {
         const complaintData = (await complaintsRes.json().catch(() => ({}))) as {
           items?: DashboardComplaint[];
         };
+        const communityData = (await communityRes.json().catch(() => ({}))) as {
+          items?: DashboardComplaint[];
+        };
 
         if (cancelled) return;
 
         const rows = Array.isArray(complaintData.items) ? complaintData.items : [];
+        const communityRows = Array.isArray(communityData.items) ? communityData.items : [];
         setComplaints(rows);
+        setCommunityComplaints(communityRows);
 
         const resolvedCount = rows.filter((c) => c.emailSent).length;
         const points = rows.reduce((sum, c) => {
@@ -202,15 +246,24 @@ export default function CitizenDashboardPage() {
             {/* Right column: Impact + AI Insights + Leaderboard */}
             <div className="lg:col-span-8 flex flex-col gap-5">
               <ImpactDashboard complaints={complaints} />
-              <AIInsights complaints={complaints} />
+              <AIInsights
+                complaints={complaints}
+                onViewSimilarComplaints={() => setActiveTab("map")}
+              />
             </div>
           </div>
         )}
         {activeTab === "complaints" && <ComplaintTracker complaints={complaints} />}
-        {activeTab === "archive" && <LocalArchivePanel />}
+        {activeTab === "archive" && <RecentComplaintsPanel complaints={communityComplaints} />}
         {activeTab === "impact" && <ImpactDashboard complaints={complaints} expanded />}
-        {activeTab === "map" && <CommunityMap complaints={complaints} />}
-        {activeTab === "ai" && <AIInsights complaints={complaints} expanded />}
+        {activeTab === "map" && <CommunityMap complaints={communityComplaints} />}
+        {activeTab === "ai" && (
+          <AIInsights
+            complaints={complaints}
+            expanded
+            onViewSimilarComplaints={() => setActiveTab("map")}
+          />
+        )}
       </motion.div>
 
       {/* Floating quick actions */}

@@ -121,6 +121,19 @@ export const usersRepo = {
       },
     );
   },
+  async listAll(limit = 500): Promise<Array<UserRecord | MemoryUser>> {
+    return withMongoFallback<Array<UserRecord | MemoryUser>>(
+      (client) =>
+        client
+          .db()
+          .collection<UserRecord>("users")
+          .find({})
+          .sort({ createdAt: -1 })
+          .limit(limit)
+          .toArray(),
+      () => memoryDb.listUsers(limit),
+    );
+  },
 
   toPublic(u: UserRecord | MemoryUser) {
     return toPublicUser(u);
@@ -186,6 +199,19 @@ export const complaintsRepo = {
           .limit(limit)
           .toArray(),
       () => memoryDb.listComplaints(userId, limit),
+    );
+  },
+  async listCommunity(limit = 100) {
+    return withMongoFallback<ComplaintRecord[] | MemoryComplaint[]>(
+      (client) =>
+        client
+          .db()
+          .collection<ComplaintRecord>("complaints")
+          .find({})
+          .sort({ createdAt: -1 })
+          .limit(limit)
+          .toArray(),
+      () => memoryDb.listAllComplaints(limit),
     );
   },
 };

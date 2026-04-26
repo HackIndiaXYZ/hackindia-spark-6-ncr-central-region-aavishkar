@@ -7,6 +7,7 @@ import { useState } from "react";
 
 interface AIInsightsProps {
   expanded?: boolean;
+  onViewSimilarComplaints?: () => void;
   complaints: Array<{
     domain: string;
     ai: { severityScore: number; severityLabel: string; routedDepartment: string } | null;
@@ -14,7 +15,11 @@ interface AIInsightsProps {
   }>;
 }
 
-export function AIInsights({ expanded = false, complaints }: AIInsightsProps) {
+export function AIInsights({
+  expanded = false,
+  onViewSimilarComplaints,
+  complaints,
+}: AIInsightsProps) {
   const [renderedAt] = useState(() => Date.now());
   const total = complaints.length;
   const avgSeverity =
@@ -121,7 +126,11 @@ export function AIInsights({ expanded = false, complaints }: AIInsightsProps) {
             <p className="text-xs font-semibold text-[rgb(var(--brand-2))]">Similar Complaints Near You</p>
             <p className="text-xs text-white/50 mt-0.5">Insights are now generated from your saved complaints only.</p>
           </div>
-          <button className="flex shrink-0 items-center gap-1 rounded-xl border border-[rgba(160,128,255,0.3)] bg-[rgba(160,128,255,0.15)] px-3 py-1.5 text-xs text-[rgb(var(--brand-2))] transition-all hover:bg-[rgba(160,128,255,0.25)]">
+          <button
+            type="button"
+            onClick={onViewSimilarComplaints}
+            className="flex shrink-0 items-center gap-1 rounded-xl border border-[rgba(160,128,255,0.3)] bg-[rgba(160,128,255,0.15)] px-3 py-1.5 text-xs text-[rgb(var(--brand-2))] transition-all hover:bg-[rgba(160,128,255,0.25)]"
+          >
             View <ArrowRight className="h-3.5 w-3.5" />
           </button>
         </div>

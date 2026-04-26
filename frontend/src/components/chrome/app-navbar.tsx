@@ -8,6 +8,7 @@ import {
   Home,
   LayoutDashboard,
   PenSquare,
+  Trophy,
   LogOut,
 } from "lucide-react";
 
@@ -19,6 +20,7 @@ const NAV_ITEMS = [
   { href: "/",    label: "Home",           icon: Home },
   { href: "/app", label: "File Complaint", icon: PenSquare },
   { href: "/app/citizen-dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/app/leaderboard", label: "Leaderboard", icon: Trophy },
 ] as const;
 
 export function AppNavbar() {

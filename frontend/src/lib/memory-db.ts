@@ -54,6 +54,9 @@ export const memoryDb = {
     getStore().users.push(user);
     return user;
   },
+  async listUsers(limit = 500): Promise<MemoryUser[]> {
+    return getStore().users.slice(0, limit);
+  },
   async createComplaint(c: Omit<MemoryComplaint, "createdAt">) {
     const row: MemoryComplaint = { ...c, createdAt: new Date() };
     getStore().complaints.unshift(row);
@@ -63,5 +66,8 @@ export const memoryDb = {
     return getStore()
       .complaints.filter((x) => x.userId === userId)
       .slice(0, limit);
+  },
+  async listAllComplaints(limit = 100): Promise<MemoryComplaint[]> {
+    return getStore().complaints.slice(0, limit);
   },
 };
